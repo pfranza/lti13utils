@@ -9,15 +9,13 @@ public class LTIOIDCResponseFactory {
 	public LTIOIDCResponseFactory(HttpServletRequest request) {
 		this.request = request;
 	}
-	
+
 	public boolean isValidRequest() {
 		return true;
 	}
-	
+
 	public String generateReponseURL() {
 		return null;
 	}
-	
-	
-	
+
 }

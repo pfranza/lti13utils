@@ -1,6 +1,16 @@
-package com.peterfranza.ltiutils.utils;
+package com.peterfranza.ltiutils;
 
-public class LTI13Strings {
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
+
+public class LTI13Request {
 
 	// Those are used by the session.
 	public static final String LTI_SESSION_USER_ID = "user_id";
@@ -38,8 +48,6 @@ public class LTI13Strings {
 	public static final String LTI_ROLE_ADMIN = "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator";
 
 	// ROLES MEMBERSHIP
-	// TODO Each of these has several subroles. Maybe it is better just to keep in
-	// the contant the "prefix" and find the role with the suffix(es)
 	public static final String LTI_ROLE_MEMBERSHIP_ADMIN = "http://purl.imsglobal.org/vocab/lis/v2/membership#Administrator";
 	public static final String LTI_ROLE_MEMBERSHIP_CONTENT_DEVELOPER = "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper";
 	public static final String LTI_ROLE_MEMBERSHIP_INSTRUCTOR = "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor";
@@ -131,4 +139,136 @@ public class LTI13Strings {
 	public static final String LTI_VERSION_3 = "1.3.0";
 	public static final String LTI_TARGET_LINK_URI = "https://purl.imsglobal.org/spec/lti/claim/target_link_uri";
 
+	private HttpServletRequest request;
+	private Jws<Claims> jws;
+
+	public LTI13Request(HttpServletRequest request, Jws<Claims> jws) {
+		this.request = request;
+		this.jws = jws;
+	}
+
+	public HttpServletRequest getRequest() {
+		return request;
+	}
+
+	public Jws<Claims> getJws() {
+		return jws;
+	}
+
+	public String getMessageType() {
+		return getStringFromLTIRequest(getJws(), LTI_MESSAGE_TYPE);
+	}
+
+	public String getVersion() {
+		return getStringFromLTIRequest(getJws(), LTI_VERSION);
+	}
+
+	public String getDeploymentId() {
+		return getStringFromLTIRequest(getJws(), LTI_DEPLOYMENT_ID);
+	}
+
+	public String getGivenName() {
+		return getStringFromLTIRequest(getJws(), LTI_GIVEN_NAME);
+	}
+
+	public String getFamilyName() {
+		return getStringFromLTIRequest(getJws(), LTI_FAMILY_NAME);
+	}
+
+	public String getMiddleName() {
+		return getStringFromLTIRequest(getJws(), LTI_MIDDLE_NAME);
+	}
+
+	public String getPicture() {
+		return getStringFromLTIRequest(getJws(), LTI_PICTURE);
+	}
+
+	public String getEmail() {
+		return getStringFromLTIRequest(getJws(), LTI_EMAIL);
+	}
+
+	public String getName() {
+		return getStringFromLTIRequest(getJws(), LTI_NAME);
+	}
+
+	public List<String> getRoles() {
+		return getListFromLTIRequest(getJws(), LTI_ROLES);
+	}
+
+	protected final String getStringFromLTIRequest(Jws<Claims> jws, String stringToGet) {
+		if (jws.getBody().containsKey(stringToGet)) {
+			return jws.getBody().get(stringToGet, String.class);
+		} else {
+			return null;
+		}
+	}
+
+	@SuppressWarnings("rawtypes")
+	protected final String getStringFromLTIRequestMap(Map map, String stringToGet) {
+		if (map.containsKey(stringToGet)) {
+			return map.get(stringToGet).toString();
+		} else {
+			return null;
+		}
+	}
+
+	@SuppressWarnings("rawtypes")
+	protected final Integer getIntegerFromLTIRequestMap(Map map, String integerToGet) {
+		if (map.containsKey(integerToGet)) {
+			try {
+				return Integer.valueOf(map.get(integerToGet).toString());
+			} catch (Exception ex) {
+				logError("No integer when expected in: {0}. Returning null", integerToGet);
+				return null;
+			}
+		} else {
+			return null;
+		}
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	protected final List<String> getListFromLTIRequestMap(Map map, String listToGet) {
+		if (map.containsKey(listToGet)) {
+			try {
+				return (List) map.get(listToGet);
+			} catch (Exception ex) {
+				logError("No list when expected in: {0} Returning null", listToGet);
+				return new ArrayList<>();
+			}
+		} else {
+			return new ArrayList<>();
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	protected final Map<String, Object> getMapFromLTIRequest(Jws<Claims> jws, String mapToGet) {
+		if (jws.getBody().containsKey(mapToGet)) {
+			try {
+				return jws.getBody().get(mapToGet, Map.class);
+			} catch (Exception ex) {
+				logError("No map integer when expected in: {0}. Returning null", mapToGet);
+				return new HashMap<>();
+			}
+		} else {
+			return new HashMap<>();
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	protected final List<String> getListFromLTIRequest(Jws<Claims> jws, String listToGet) {
+		if (jws.getBody().containsKey(listToGet)) {
+			try {
+				return jws.getBody().get(listToGet, List.class);
+			} catch (Exception ex) {
+				logError("No map integer when expected in: " + listToGet + ". Returning	 null");
+				return new ArrayList<>();
+			}
+		} else {
+			return new ArrayList<>();
+		}
+	}
+
+	protected void logError(String error, String... args) {
+
+	}
 }

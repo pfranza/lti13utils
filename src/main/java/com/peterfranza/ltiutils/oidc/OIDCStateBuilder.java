@@ -40,7 +40,6 @@ public interface OIDCStateBuilder {
 	public default String build(LTI13KeyLoader keyLoader) throws Exception {
 		Date date = new Date();
 		return Jwts.builder()
-
 				.setHeaderParam("kid", keyLoader.getKeyPairIdentifier())
 				.setIssuer(getIssuer())
 				.setSubject(getPlatformISS()).setAudience(getAudience())

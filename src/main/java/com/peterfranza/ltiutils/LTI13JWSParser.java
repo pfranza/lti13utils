@@ -1,6 +1,7 @@
 package com.peterfranza.ltiutils;
 
 import java.security.Key;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -13,12 +14,12 @@ import io.jsonwebtoken.SigningKeyResolverAdapter;
 
 public class LTI13JWSParser {
 
-	private LTI13KeyLoader keyResolver;
+	private List<LTI13KeyLoader> keyResolver;
 	private Consumer<String> errorConsumer;
 	private Consumer<Jws<Claims>> successConsumer;
 	private Consumer<Exception> exceptionConsumer;
 
-	public LTI13JWSParser(LTI13KeyLoader keyResolver) {
+	public LTI13JWSParser(List<LTI13KeyLoader> keyResolver) {
 		this.keyResolver = keyResolver;
 	}
 
@@ -43,8 +44,11 @@ public class LTI13JWSParser {
 			@Override
 			public Key resolveSigningKey(@SuppressWarnings("rawtypes") JwsHeader header, Claims claims) {
 				try {
-					return keyResolver.loadPublicKey();
+					return keyResolver.stream().filter(key -> {
+						return key.getKeyPairIdentifier().equalsIgnoreCase(header.get("kid").toString());
+					}).findFirst().get().loadPublicKey();
 				} catch (Exception e) {
+					e.printStackTrace();
 					throw new RuntimeException("Error loading key", e);
 				}
 			}

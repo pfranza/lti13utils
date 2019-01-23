@@ -14,8 +14,9 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 
+import com.peterfranza.ltiutils.jwk.SignatureKeyProvider;
+import com.peterfranza.ltiutils.jwk.SignatureKeyToJWKSerializer;
 import com.peterfranza.ltiutils.oidc.OIDCRedirectBuilder;
-import com.peterfranza.ltiutils.oidc.OIDCStateBuilder;
 
 public abstract class MockToolDefinition extends AbstractHandler {
 
@@ -23,10 +24,40 @@ public abstract class MockToolDefinition extends AbstractHandler {
 	private String client = "MockToolDefinitionClient";
 	private String deployment = "MockToolDefinitionDeployment";
 
-
 	private List<ExamplePageFlow> mountedPages = new ArrayList<>();
 
 	MockToolDefinition(MockPlatformDefinition platform) {
+
+		/**
+		 * This Mounts the tool public key at the 'well-known' jwks url
+		 */
+		mountedPages.add(new ExamplePageFlow() {
+
+			@Override
+			public void onRequest(String target, Request baseRequest, HttpServletRequest request,
+					HttpServletResponse response) throws IOException, ServletException {
+
+				try {
+					PrintWriter w = response.getWriter();
+					w.print(new SignatureKeyToJWKSerializer().serialize(getToolKeys().getFirst().get()));
+					response.getWriter().flush();
+					response.setStatus(200);
+
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+
+			}
+
+			@Override
+			public String mountPoint() {
+				return "/.well-known/jwks.json";
+			}
+		});
+
+		/**
+		 * Redirect for OIDC third-party login requests
+		 */
 		mountedPages.add(new ExamplePageFlow() {
 
 			@Override
@@ -39,68 +70,9 @@ public abstract class MockToolDefinition extends AbstractHandler {
 
 				try {
 
-					String newUrl = new OIDCRedirectBuilder() {
-
-						@Override
-						public OIDCStateBuilder getStateBuilder() {
-							return new OIDCStateBuilder() {
-
-								@Override
-								public String getTargetLinkUri() {
-									return request.getParameter("target_link_uri");
-								}
-
-								@Override
-								public String getPlatformISS() {
-									return name;
-								}
-
-								@Override
-								public String getOrigionalISS() {
-									return request.getParameter("iss");
-								}
-
-								@Override
-								public String getLtiMessageHint() {
-									return request.getParameter("lti_message_hint");
-								}
-
-								@Override
-								public String getLoginHint() {
-									return request.getParameter("login_hint");
-								}
-
-								@Override
-								public String getIssuer() {
-									return name;
-								}
-
-								@Override
-								public String getController() {
-									return mountPoint();
-								}
-
-								@Override
-								public String getAudience() {
-									return name;
-								}
-							};
-						}
-
-						@Override
-						public String getOIDCEndpoint() {
-							return platform.getPlatformOIDCAuthURL();
-						}
-
-						@Override
-						public String getClientID() {
-							return client;
-						}
-					}.buildRedirectURL(getToolKeys());
-
-					System.out.println(newUrl);
-
-					response.sendRedirect(newUrl);
+					response.sendRedirect(OIDCRedirectBuilder.createFromRequest(request, name, name, mountPoint(), name,
+							client, platform.getPlatformOIDCAuthURL())
+							.buildRedirectURL(getToolKeys().getFirst().get()));
 				} catch (Exception e) {
 					throw new RuntimeException(e);
 				}
@@ -113,39 +85,30 @@ public abstract class MockToolDefinition extends AbstractHandler {
 			}
 		});
 
+		/**
+		 * Handle the resource launch and decode the plaform JWT into usable claims
+		 */
 		mountedPages.add(new ExamplePageFlow() {
 
 			@Override
 			public void onRequest(String target, Request baseRequest, final HttpServletRequest request,
 					HttpServletResponse response) throws IOException, ServletException {
 
-				new LTI13JWSParser(platform.getPlatformKeys()).onException(exception -> {
-					try {
-						response.getWriter().print("ERROR: " + exception.getMessage());
-						response.getWriter().flush();
-						response.setStatus(500);
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
-				}).onError(error -> {
-					try {
-						response.getWriter().print("ERROR: " + error);
-						response.getWriter().flush();
-						response.setStatus(500);
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
-				}).onSuccess(jws -> {
+				Collections.list(request.getParameterNames()).stream().forEach(key -> {
+					System.out.println(key + " = " + request.getParameter(key));
+				});
+
+				try {
+					LTI13Request ltiRequest = LTI13JWSParser.convertOrThrow(platform.getPlatformKeys(), request);
+
 					try {
 						PrintWriter w = response.getWriter();
 
-						LTI13Request req = new LTI13Request(request, jws);
-
-						w.println("Success launch for \"" + req.getName() + "\"");
+						w.println("Success launch for \"" + ltiRequest.getName() + "\"");
 						w.println("");
 						w.println("");
-						jws.getBody().keySet().stream().forEach(key -> {
-							w.println(" -- " + key + " = " + jws.getBody().get(key));
+						ltiRequest.getJws().getBody().keySet().stream().forEach(key -> {
+							w.println(" -- " + key + " = " + ltiRequest.getJws().getBody().get(key));
 						});
 						response.getWriter().flush();
 						response.setStatus(200);
@@ -153,7 +116,17 @@ public abstract class MockToolDefinition extends AbstractHandler {
 					} catch (Exception e) {
 						e.printStackTrace();
 					}
-				}).parse(request.getParameter("id_token"));
+
+				} catch (Exception e) {
+					try {
+						response.getWriter().print("ERROR: " + e.getMessage());
+						response.getWriter().flush();
+						response.setStatus(500);
+					} catch (Exception ex) {
+						ex.printStackTrace();
+					}
+				}
+
 			}
 
 			@Override
@@ -177,8 +150,7 @@ public abstract class MockToolDefinition extends AbstractHandler {
 		}
 	}
 
-	protected abstract LTI13KeyLoader getToolKeys();
-
+	protected abstract SignatureKeyProvider getToolKeys();
 
 	private interface ExamplePageFlow {
 		String mountPoint();

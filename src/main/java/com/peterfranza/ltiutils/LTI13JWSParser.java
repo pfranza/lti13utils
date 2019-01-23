@@ -1,9 +1,14 @@
 package com.peterfranza.ltiutils;
 
 import java.security.Key;
-import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Function;
+
+import javax.servlet.http.HttpServletRequest;
+
+import com.google.common.base.Strings;
+import com.peterfranza.ltiutils.jwk.SignatureKeyProvider;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
@@ -14,12 +19,12 @@ import io.jsonwebtoken.SigningKeyResolverAdapter;
 
 public class LTI13JWSParser {
 
-	private List<LTI13KeyLoader> keyResolver;
+	private SignatureKeyProvider keyResolver;
 	private Consumer<String> errorConsumer;
 	private Consumer<Jws<Claims>> successConsumer;
 	private Consumer<Exception> exceptionConsumer;
 
-	public LTI13JWSParser(List<LTI13KeyLoader> keyResolver) {
+	public LTI13JWSParser(SignatureKeyProvider keyResolver) {
 		this.keyResolver = keyResolver;
 	}
 
@@ -38,15 +43,16 @@ public class LTI13JWSParser {
 		return this;
 	}
 
-	public void parse(String jwsRaw) {
+	public Optional<Jws<Claims>> parse(String jwsRaw) {
 		JwtParser parser = Jwts.parser();
 		parser.setSigningKeyResolver(new SigningKeyResolverAdapter() {
 			@Override
 			public Key resolveSigningKey(@SuppressWarnings("rawtypes") JwsHeader header, Claims claims) {
 				try {
-					return keyResolver.stream().filter(key -> {
-						return key.getKeyPairIdentifier().equalsIgnoreCase(header.get("kid").toString());
-					}).findFirst().get().loadPublicKey();
+					String kid = header.get("kid").toString();
+					return keyResolver.getById(kid).orElseThrow(() -> {
+						return new RuntimeException("Unable to load key for id: " + kid);
+					}).getPublicKey();
 				} catch (Exception e) {
 					e.printStackTrace();
 					throw new RuntimeException("Error loading key", e);
@@ -65,12 +71,15 @@ public class LTI13JWSParser {
 				if (successConsumer != null) {
 					successConsumer.accept(jws);
 				}
+				return Optional.of(jws);
 			}
 		} catch (Exception e) {
 			if (exceptionConsumer != null) {
 				exceptionConsumer.accept(e);
 			}
 		}
+
+		return Optional.empty();
 	}
 
 	public Optional<String> getLTI3RequestErrors(Jws<Claims> jws) {
@@ -90,6 +99,50 @@ public class LTI13JWSParser {
 		}
 
 		return Optional.empty();
+	}
+
+	public static Optional<LTI13Request> optionallyConvert(SignatureKeyProvider keyProvider,
+			HttpServletRequest request) {
+		try {
+			return Optional.of(convertOrThrow(keyProvider, request, (msg) -> {
+				return new Exception(msg);
+			}));
+		} catch (Exception e) {
+			return Optional.empty();
+		}
+	}
+
+	public static LTI13Request convertOrThrow(SignatureKeyProvider keyProvider, HttpServletRequest request) {
+		try {
+			return convertOrThrow(keyProvider, request, (msg) -> {
+				return new Exception(msg);
+			});
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	public static LTI13Request convertOrThrow(SignatureKeyProvider keyProvider, HttpServletRequest request,
+			Function<String, ? extends Exception> exceptionSupplier) throws Exception {
+
+		StringBuffer errorBuffer = new StringBuffer();
+
+		Optional<Jws<Claims>> jws = new LTI13JWSParser(keyProvider).onException(exception -> {
+			errorBuffer.append(exception.getMessage());
+		}).onError(error -> {
+			errorBuffer.append(error);
+		}).parse(request.getParameter("id_token"));
+
+		if (jws.isPresent()) {
+			return new LTI13Request(request, jws.get());
+		}
+
+		String error = errorBuffer.toString();
+		if (Strings.isNullOrEmpty(error)) {
+			throw exceptionSupplier.apply("Unable to convert HttpServletRequest to JWS");
+		} else {
+			throw exceptionSupplier.apply(error);
+		}
 	}
 
 }

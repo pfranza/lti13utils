@@ -1,4 +1,5 @@
-# lti13utils
+# LTI 1.3 Parsing Utilities Library
+
 
 
 

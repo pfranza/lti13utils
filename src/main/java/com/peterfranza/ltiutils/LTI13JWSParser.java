@@ -2,150 +2,124 @@ package com.peterfranza.ltiutils;
 
 import java.security.Key;
 import java.util.Optional;
-import java.util.function.Consumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import javax.servlet.http.HttpServletRequest;
 
-import com.google.common.base.Strings;
+import com.google.gson.Gson;
+import com.peterfranza.ltiutils.jwk.JWK;
 import com.peterfranza.ltiutils.jwk.SignatureKeyProvider;
+import com.peterfranza.ltiutils.objects.LaunchJWT;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwsHeader;
 import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SigningKeyResolver;
 import io.jsonwebtoken.SigningKeyResolverAdapter;
 
 public class LTI13JWSParser {
 
-	private SignatureKeyProvider keyResolver;
-	private Consumer<String> errorConsumer;
-	private Consumer<Jws<Claims>> successConsumer;
-	private Consumer<Exception> exceptionConsumer;
+	public static final String LTI_MESSAGE_TYPE = "https://purl.imsglobal.org/spec/lti/claim/message_type";
+	public static final String LTI_MESSAGE_TYPE_RESOURCE_LINK = "LtiResourceLinkRequest";
 
-	public LTI13JWSParser(SignatureKeyProvider keyResolver) {
-		this.keyResolver = keyResolver;
-	}
+	public static final String LTI_VERSION = "https://purl.imsglobal.org/spec/lti/claim/version";
+	public static final String LTI_VERSION_3 = "1.3.0";
 
-	public LTI13JWSParser onError(Consumer<String> errorConsumer) {
-		this.errorConsumer = errorConsumer;
-		return this;
-	}
 
-	public LTI13JWSParser onSuccess(Consumer<Jws<Claims>> successConsumer) {
-		this.successConsumer = successConsumer;
-		return this;
-	}
 
-	public LTI13JWSParser onException(Consumer<Exception> exceptionConsumer) {
-		this.exceptionConsumer = exceptionConsumer;
-		return this;
-	}
-
-	public Optional<Jws<Claims>> parse(String jwsRaw) {
-		JwtParser parser = Jwts.parser();
-
-		parser.setSigningKeyResolver(new SigningKeyResolverAdapter() {
-			@Override
-			public Key resolveSigningKey(@SuppressWarnings("rawtypes") JwsHeader header, Claims claims) {
-				try {
-					String kid = header.get("kid").toString();
-					return keyResolver.getById(kid).orElseThrow(() -> {
-						return new RuntimeException("Unable to load key for id: " + kid);
-					}).getPublicKey();
-				} catch (Exception e) {
-					e.printStackTrace();
-					throw new RuntimeException("Error loading key", e);
-				}
-			}
-		});
-
-		try {
-			Jws<Claims> jws = parser.parseClaimsJws(jwsRaw);
-			Optional<String> errors = getLTI3RequestErrors(jws);
-			if (errors.isPresent()) {
-				if (errorConsumer != null) {
-					errorConsumer.accept(errors.get());
-				}
-			} else {
-				if (successConsumer != null) {
-					successConsumer.accept(jws);
-				}
-				return Optional.of(jws);
-			}
-		} catch (Exception e) {
-			if (exceptionConsumer != null) {
-				exceptionConsumer.accept(e);
-			}
-		}
-
-		return Optional.empty();
-	}
-
-	public Optional<String> getLTI3RequestErrors(Jws<Claims> jws) {
-
-		String ltiVersion = jws.getBody().get(LTI13Request.LTI_VERSION, String.class);
-		if (ltiVersion == null) {
-			return Optional.of("Missing version");
-		} else if (ltiVersion != null && !LTI13Request.LTI_VERSION_3.equals(ltiVersion)) {
-			return Optional.of("Incorrect version: " + ltiVersion);
-		}
-
-		String ltiMessageType = jws.getBody().get(LTI13Request.LTI_MESSAGE_TYPE, String.class);
-		if (ltiMessageType == null) {
-			return Optional.of("Missing message type");
-		} else if (ltiMessageType != null && !LTI13Request.LTI_MESSAGE_TYPE_RESOURCE_LINK.equals(ltiMessageType)) {
-			return Optional.of("Incorrect message type: " + ltiMessageType + ". ");
-		}
-
-		return Optional.empty();
-	}
-
-	public static Optional<LTI13Request> optionallyConvert(SignatureKeyProvider keyProvider,
+	public static Optional<LaunchJWT> optionallyConvert(SignatureKeyProvider keyProvider,
 			HttpServletRequest request) {
 		try {
-			return Optional.of(convertOrThrow(keyProvider, request, (msg) -> {
-				return new Exception(msg);
-			}));
+			return Optional.of(convertOrThrow(keyProvider, request, LTI13JWSParser::self));
 		} catch (Exception e) {
 			return Optional.empty();
 		}
 	}
 
-	public static LTI13Request convertOrThrow(SignatureKeyProvider keyProvider, HttpServletRequest request) {
+	public static LaunchJWT convertOrThrow(SignatureKeyProvider keyProvider, HttpServletRequest request)
+			throws Exception {
+		return convertOrThrow(keyProvider, request, LTI13JWSParser::self);
+	}
+
+	public static LaunchJWT convertOrThrow(SignatureKeyProvider keyProvider, HttpServletRequest request,
+			Function<Exception, ? extends Exception> exceptionSupplier) throws Exception {
+		return convertOrThrow(request, () -> {
+			return parserFactory(keyProvider);
+		}, exceptionSupplier, LTI13JWSParser::convertToLaunch);
+	}
+
+	public static <T> T convertOrThrow(HttpServletRequest request,
+			Supplier<JwtParser> parserSupplier,
+			Function<Exception, ? extends Exception> exceptionSupplier,
+			BiFunction<String, Jws<Claims>, T> objectCreator)
+			throws Exception {
 		try {
-			return convertOrThrow(keyProvider, request, (msg) -> {
-				return new Exception(msg);
-			});
+			String idToken = request.getParameter("id_token");
+			Jws<Claims> jws = parserSupplier.get().parseClaimsJws(idToken);
+			return objectCreator.apply(idToken, jws);
 		} catch (Exception e) {
-			throw new RuntimeException(e);
+			throw exceptionSupplier.apply(e);
 		}
 	}
 
-	public static LTI13Request convertOrThrow(SignatureKeyProvider keyProvider, HttpServletRequest request,
-			Function<String, ? extends Exception> exceptionSupplier) throws Exception {
+	public static SigningKeyResolver createResolverAdapter(SignatureKeyProvider keyProvider) {
+		return new SigningKeyResolverAdapter() {
+			@Override
+			public Key resolveSigningKey(@SuppressWarnings("rawtypes") JwsHeader header, Claims claims) {
+				try {
+					String kid = header.get(JWK.KEY_ID).toString();
+					return keyProvider.getById(kid).orElseThrow(() -> {
+						return new RuntimeException("Unable to load key for id: " + kid);
+					}).getPublicKey();
+				} catch (Exception e) {
+					throw new RuntimeException("Error loading key", e);
+				}
+			}
+		};
+	}
 
-		StringBuffer errorBuffer = new StringBuffer();
+	/**
+	 * This creates the JWT Parser and sets up a basic configuration for it adding
+	 * some claims as required values
+	 * 
+	 * @param keyProvider
+	 * @return
+	 */
+	public static JwtParser parserFactory(SignatureKeyProvider keyProvider) {
+		return Jwts.parser().setSigningKeyResolver(createResolverAdapter(keyProvider))
+		.require(LTI_VERSION, LTI_VERSION_3)
+		.require(LTI_MESSAGE_TYPE, LTI_MESSAGE_TYPE_RESOURCE_LINK);
 
-		String idToken = request.getParameter("id_token");
+	}
 
-		Optional<Jws<Claims>> jws = new LTI13JWSParser(keyProvider).onException(exception -> {
-			errorBuffer.append(exception.getMessage());
-		}).onError(error -> {
-			errorBuffer.append(error);
-		}).parse(idToken);
+	public static LaunchJWT convertToLaunch(String idToken, Jws<Claims> claims) {
+		return new Gson().fromJson(rawJwtBody(rawJwtBody(idToken)), LaunchJWT.class);
+	}
 
-		if (jws.isPresent()) {
-			return new LTI13Request(request, jws.get(), idToken);
+	public static String rawJwtBody(String encoded) {
+		String[] parts = encoded.split("\\.");
+		if (parts.length != 2 && parts.length != 3) {
+			return null;
 		}
+		byte[] bytes = java.util.Base64.getDecoder().decode(parts[1]);
+		return new String(bytes);
+	}
 
-		String error = errorBuffer.toString();
-		if (Strings.isNullOrEmpty(error)) {
-			throw exceptionSupplier.apply("Unable to convert HttpServletRequest to JWS");
-		} else {
-			throw exceptionSupplier.apply(error);
+	public static String rawJwtHeader(String encoded) {
+		String[] parts = encoded.split("\\.");
+		if (parts.length != 2 && parts.length != 3) {
+			return null;
 		}
+		byte[] bytes = java.util.Base64.getDecoder().decode(parts[0]);
+		return new String(bytes);
+	}
+
+	private static <T> T self(T arg) {
+		return arg;
 	}
 
 }

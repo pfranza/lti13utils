@@ -15,8 +15,9 @@ import com.google.gson.annotations.SerializedName;
 public class JWK {
 
 	private static final String PUBLIC_KEY_ALGORITHM = "RSA";
+	public static final String KEY_ID = "kid";
 
-	@SerializedName("kid")
+	@SerializedName(KEY_ID)
 	private String id;
 
 	@SerializedName("kty")

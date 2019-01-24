@@ -3,7 +3,6 @@ package com.peterfranza.ltiutils;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,6 +16,7 @@ import org.eclipse.jetty.server.handler.AbstractHandler;
 import com.google.gson.GsonBuilder;
 import com.peterfranza.ltiutils.jwk.SignatureKeyProvider;
 import com.peterfranza.ltiutils.jwk.SignatureKeyToJWKSerializer;
+import com.peterfranza.ltiutils.objects.LaunchJWT;
 import com.peterfranza.ltiutils.oidc.OIDCRedirectBuilder;
 
 public abstract class MockToolDefinition extends AbstractHandler {
@@ -65,10 +65,6 @@ public abstract class MockToolDefinition extends AbstractHandler {
 			public void onRequest(String target, Request baseRequest, final HttpServletRequest request,
 					HttpServletResponse response) throws IOException, ServletException {
 
-				Collections.list(request.getParameterNames()).stream().forEach(key -> {
-					System.out.println(key + " = " + request.getParameter(key));
-				});
-
 				try {
 
 					response.sendRedirect(OIDCRedirectBuilder.createFromRequest(request, name, name, mountPoint(), name,
@@ -95,32 +91,19 @@ public abstract class MockToolDefinition extends AbstractHandler {
 			public void onRequest(String target, Request baseRequest, final HttpServletRequest request,
 					HttpServletResponse response) throws IOException, ServletException {
 
-				Collections.list(request.getParameterNames()).stream().forEach(key -> {
-					System.out.println(key + " = " + request.getParameter(key));
-				});
-
-				LTI13Request ltiRequest = LTI13JWSParser.convertOrThrow(platform.getPlatformKeys(), request);
-
 				try {
 
-					System.out.println(ltiRequest.getJws().getBody().toString());
+					LaunchJWT ltiRequest = LTI13JWSParser.convertOrThrow(platform.getPlatformKeys(), request);
 
 					try {
 						PrintWriter w = response.getWriter();
 
-						w.println("Success launch for \"" + ltiRequest.getLaunch().getName() + "\"");
-						w.println("");
-						w.println("");
-						w.println("Full JWS Map:");
-						ltiRequest.getJws().getBody().keySet().stream().forEach(key -> {
-							w.println(" -- " + key + " = " + ltiRequest.getJws().getBody().get(key));
-						});
+						w.println("Success launch for \"" + ltiRequest.getName() + "\"");
 
 						w.println("");
 						w.println("");
 						w.println("JSON Recode:");
-
-						w.println(new GsonBuilder().setPrettyPrinting().create().toJson(ltiRequest.getLaunch()));
+						w.println(new GsonBuilder().setPrettyPrinting().create().toJson(ltiRequest));
 
 						response.getWriter().flush();
 						response.setStatus(200);

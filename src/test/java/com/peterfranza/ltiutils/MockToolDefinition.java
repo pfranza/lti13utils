@@ -14,6 +14,7 @@ import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 
+import com.google.gson.GsonBuilder;
 import com.peterfranza.ltiutils.jwk.SignatureKeyProvider;
 import com.peterfranza.ltiutils.jwk.SignatureKeyToJWKSerializer;
 import com.peterfranza.ltiutils.oidc.OIDCRedirectBuilder;
@@ -98,18 +99,29 @@ public abstract class MockToolDefinition extends AbstractHandler {
 					System.out.println(key + " = " + request.getParameter(key));
 				});
 
+				LTI13Request ltiRequest = LTI13JWSParser.convertOrThrow(platform.getPlatformKeys(), request);
+
 				try {
-					LTI13Request ltiRequest = LTI13JWSParser.convertOrThrow(platform.getPlatformKeys(), request);
+
+					System.out.println(ltiRequest.getJws().getBody().toString());
 
 					try {
 						PrintWriter w = response.getWriter();
 
-						w.println("Success launch for \"" + ltiRequest.getName() + "\"");
+						w.println("Success launch for \"" + ltiRequest.getLaunch().getName() + "\"");
 						w.println("");
 						w.println("");
+						w.println("Full JWS Map:");
 						ltiRequest.getJws().getBody().keySet().stream().forEach(key -> {
 							w.println(" -- " + key + " = " + ltiRequest.getJws().getBody().get(key));
 						});
+
+						w.println("");
+						w.println("");
+						w.println("JSON Recode:");
+
+						w.println(new GsonBuilder().setPrettyPrinting().create().toJson(ltiRequest.getLaunch()));
+
 						response.getWriter().flush();
 						response.setStatus(200);
 

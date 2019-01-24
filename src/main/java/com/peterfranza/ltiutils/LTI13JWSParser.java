@@ -45,6 +45,7 @@ public class LTI13JWSParser {
 
 	public Optional<Jws<Claims>> parse(String jwsRaw) {
 		JwtParser parser = Jwts.parser();
+
 		parser.setSigningKeyResolver(new SigningKeyResolverAdapter() {
 			@Override
 			public Key resolveSigningKey(@SuppressWarnings("rawtypes") JwsHeader header, Claims claims) {
@@ -127,14 +128,16 @@ public class LTI13JWSParser {
 
 		StringBuffer errorBuffer = new StringBuffer();
 
+		String idToken = request.getParameter("id_token");
+
 		Optional<Jws<Claims>> jws = new LTI13JWSParser(keyProvider).onException(exception -> {
 			errorBuffer.append(exception.getMessage());
 		}).onError(error -> {
 			errorBuffer.append(error);
-		}).parse(request.getParameter("id_token"));
+		}).parse(idToken);
 
 		if (jws.isPresent()) {
-			return new LTI13Request(request, jws.get());
+			return new LTI13Request(request, jws.get(), idToken);
 		}
 
 		String error = errorBuffer.toString();

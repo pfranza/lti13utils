@@ -17,6 +17,8 @@ import com.google.gson.GsonBuilder;
 import com.peterfranza.ltiutils.jwk.SignatureKeyProvider;
 import com.peterfranza.ltiutils.jwk.SignatureKeyToJWKSerializer;
 import com.peterfranza.ltiutils.objects.LaunchJWT;
+import com.peterfranza.ltiutils.oidc.AccessTokenRequest;
+import com.peterfranza.ltiutils.oidc.AccessTokenResponse;
 import com.peterfranza.ltiutils.oidc.OIDCRedirectBuilder;
 
 public abstract class MockToolDefinition extends AbstractHandler {
@@ -87,6 +89,8 @@ public abstract class MockToolDefinition extends AbstractHandler {
 		 */
 		mountedPages.add(new ExamplePageFlow() {
 
+			
+
 			@Override
 			public void onRequest(String target, Request baseRequest, final HttpServletRequest request,
 					HttpServletResponse response) throws IOException, ServletException {
@@ -95,22 +99,22 @@ public abstract class MockToolDefinition extends AbstractHandler {
 
 					LaunchJWT ltiRequest = LTI13JWSParser.convertOrThrow(platform.getPlatformKeys(), request);
 
-					try {
-						PrintWriter w = response.getWriter();
+					AccessTokenResponse token = AccessTokenRequest.getAccessToken(getToolKeys(),
+							platform.getOauth2URL(), client,
+							"Code?");
+					System.out.println(token);
 
-						w.println("Success launch for \"" + ltiRequest.getName() + "\"");
+					PrintWriter w = response.getWriter();
 
-						w.println("");
-						w.println("");
-						w.println("JSON Recode:");
-						w.println(new GsonBuilder().setPrettyPrinting().create().toJson(ltiRequest));
+					w.println("Success launch for \"" + ltiRequest.getName() + "\"");
 
-						response.getWriter().flush();
-						response.setStatus(200);
+					w.println("");
+					w.println("");
+					w.println("JSON Recode:");
+					w.println(new GsonBuilder().setPrettyPrinting().create().toJson(ltiRequest));
 
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
+					response.getWriter().flush();
+					response.setStatus(200);
 
 				} catch (Exception e) {
 					try {
